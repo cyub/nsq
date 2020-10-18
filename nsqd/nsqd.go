@@ -84,7 +84,7 @@ func New(opts *Options) (*NSQD, error) {
 		cwd, _ := os.Getwd()
 		dataPath = cwd
 	}
-	if opts.Logger == nil {
+	if opts.Logger == nil { // 设置logger
 		opts.Logger = log.New(os.Stderr, opts.LogPrefix, log.Ldate|log.Ltime|log.Lmicroseconds)
 	}
 
@@ -154,16 +154,16 @@ func New(opts *Options) (*NSQD, error) {
 	n.logf(LOG_INFO, version.String("nsqd"))
 	n.logf(LOG_INFO, "ID: %d", opts.ID)
 
-	n.tcpListener, err = net.Listen("tcp", opts.TCPAddress)
+	n.tcpListener, err = net.Listen("tcp", opts.TCPAddress) // defautl 0.0.0.0:4150
 	if err != nil {
 		return nil, fmt.Errorf("listen (%s) failed - %s", opts.TCPAddress, err)
 	}
-	n.httpListener, err = net.Listen("tcp", opts.HTTPAddress)
+	n.httpListener, err = net.Listen("tcp", opts.HTTPAddress) // default 0.0.0.0:4151
 	if err != nil {
 		return nil, fmt.Errorf("listen (%s) failed - %s", opts.HTTPAddress, err)
 	}
 	if n.tlsConfig != nil && opts.HTTPSAddress != "" {
-		n.httpsListener, err = tls.Listen("tcp", opts.HTTPSAddress, n.tlsConfig)
+		n.httpsListener, err = tls.Listen("tcp", opts.HTTPSAddress, n.tlsConfig) // default 0.0.0.0:4152
 		if err != nil {
 			return nil, fmt.Errorf("listen (%s) failed - %s", opts.HTTPSAddress, err)
 		}
@@ -242,8 +242,7 @@ func (n *NSQD) RemoveClient(clientID int64) {
 }
 
 func (n *NSQD) Main() error {
-	ctx := &context{n}
-
+	ctx := &context{n} // 上下文包含NSQD
 	exitCh := make(chan error)
 	var once sync.Once
 	exitFunc := func(err error) {
@@ -256,6 +255,10 @@ func (n *NSQD) Main() error {
 	}
 
 	tcpServer := &tcpServer{ctx: ctx}
+	// waitGroup.Wrap 和 exitFunc
+	// Wrap用于封装函数执行：执行waitGroup.Add 和异步调用函数和waitGroup.Done
+	// exitFunc 等待函数返回值，正常情况下传入的函数是阻塞的，不会返回值，若返回说明函数启动的服务异常
+	// 只要有一个异常，则退出通道exitCh写入值，则该Main函数立即返回，调用方可以获取这个错误
 	n.waitGroup.Wrap(func() {
 		exitFunc(protocol.TCPServer(n.tcpListener, tcpServer, n.logf))
 	})
@@ -312,7 +315,7 @@ func writeSyncFile(fn string, data []byte) error {
 	}
 
 	_, err = f.Write(data)
-	if err == nil {
+	if err == nil { // 强刷至磁盘
 		err = f.Sync()
 	}
 	f.Close()
@@ -323,7 +326,7 @@ func (n *NSQD) LoadMetadata() error {
 	atomic.StoreInt32(&n.isLoading, 1)
 	defer atomic.StoreInt32(&n.isLoading, 0)
 
-	fn := newMetadataFile(n.getOpts())
+	fn := newMetadataFile(n.getOpts()) // 返回元信息文件
 
 	data, err := readOrEmpty(fn)
 	if err != nil {
@@ -403,7 +406,7 @@ func (n *NSQD) PersistMetadata() error {
 	if err != nil {
 		return err
 	}
-
+	// 先写入临时文件，然后重命名临时文件为目标文件
 	tmpFileName := fmt.Sprintf("%s.%d.tmp", fileName, rand.Int())
 
 	err = writeSyncFile(tmpFileName, data)
@@ -419,6 +422,7 @@ func (n *NSQD) PersistMetadata() error {
 	return nil
 }
 
+// Exit func
 func (n *NSQD) Exit() {
 	if n.tcpListener != nil {
 		n.tcpListener.Close()
@@ -454,6 +458,8 @@ func (n *NSQD) Exit() {
 // to return a pointer to a Topic object (potentially new)
 func (n *NSQD) GetTopic(topicName string) *Topic {
 	// most likely, we already have this topic, so try read lock first.
+	// 绝大多数情况下主题已存在，优先使用读锁，提高性能
+	// 若不存在，则使用写锁锁定并创建
 	n.RLock()
 	t, ok := n.topicMap[topicName]
 	n.RUnlock()
@@ -468,7 +474,7 @@ func (n *NSQD) GetTopic(topicName string) *Topic {
 		n.Unlock()
 		return t
 	}
-	deleteCallback := func(t *Topic) {
+	deleteCallback := func(t *Topic) { // 删除回调
 		n.DeleteExistingTopic(t.name)
 	}
 	t = NewTopic(topicName, &context{n}, deleteCallback)
@@ -480,7 +486,7 @@ func (n *NSQD) GetTopic(topicName string) *Topic {
 	// topic is created but messagePump not yet started
 
 	// if loading metadata at startup, no lookupd connections yet, topic started after load
-	if atomic.LoadInt32(&n.isLoading) == 1 {
+	if atomic.LoadInt32(&n.isLoading) == 1 { // isLoading 元信息加载中
 		return t
 	}
 

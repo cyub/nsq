@@ -39,9 +39,9 @@ func (p *program) Init(env svc.Environment) error {
 }
 
 func (p *program) Start() error {
-	opts := nsqd.NewOptions()
+	opts := nsqd.NewOptions() // nsqd 选项
 
-	flagSet := nsqdFlagSet(opts)
+	flagSet := nsqdFlagSet(opts) // 命令行参数
 	flagSet.Parse(os.Args[1:])
 
 	rand.Seed(time.Now().UTC().UnixNano())
@@ -61,18 +61,18 @@ func (p *program) Start() error {
 	}
 	cfg.Validate()
 
-	options.Resolve(opts, flagSet, cfg)
+	options.Resolve(opts, flagSet, cfg) // 命令行选项、配置文件结合，解析到opts结构体中
 	nsqd, err := nsqd.New(opts)
 	if err != nil {
 		logFatal("failed to instantiate nsqd - %s", err)
 	}
 	p.nsqd = nsqd
 
-	err = p.nsqd.LoadMetadata()
+	err = p.nsqd.LoadMetadata() // 加载nsqd元信息
 	if err != nil {
 		logFatal("failed to load metadata - %s", err)
 	}
-	err = p.nsqd.PersistMetadata()
+	err = p.nsqd.PersistMetadata() // 加载nsqd元信息之后，立即持久化元数据，目的是为了防止元数据文件只读而不能写
 	if err != nil {
 		logFatal("failed to persist metadata - %s", err)
 	}
